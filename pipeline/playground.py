@@ -5,7 +5,7 @@ import random
 from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula, CalcExactMolWt
 from molmass import Formula
-import mutations as mt
+import mutations as mut
 from functools import partial
 
 
@@ -25,20 +25,9 @@ benzene_sf = sf.encoder(benzene)  # [C][=C][C][=C][C][=C][Ring1][=Branch1]
 #def test(variable): #TODO
 #    print([ i for i, a in locals().items() if a == variable][0],": ",variable)
 
-def func(a,b):
-    return random.randint(a,b)
-
-#a_func = func(1,5)
-func_list = [partial(func,a=1,b=5), partial(func,a=1,b=5), partial(func,a=1,b=5)]
-
-print("output:")
-for i in range(4):
-    for j in range(len(func_list)):
-        print(func_list[j]())
-
 #print(CalcExactMolWt(Chem.MolFromSmiles(cystene)))
-mfl = [partial(mt.mutate,selfies_molecule=benzene_sf),
-        partial(mt.mutate_insert,selfies_molecule=benzene_sf,fragment_size=10,random_size=True)]
+mfl = [partial(mut.mutate,selfies_molecule=sf.encoder(mdma)),
+        partial(mut.mutate_insert,selfies_molecule=sf.encoder(mdma),fragment_size=10,random_size=True)]
 
 derivatives = {}
 

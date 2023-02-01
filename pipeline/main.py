@@ -4,7 +4,7 @@ import random
 from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula, CalcExactMolWt
 from molmass import Formula
-import mutations as mt
+import mutations as mut
 
 alphabet = sf.get_semantic_robust_alphabet() # Gets the alphabet of robust symbols
 
@@ -24,7 +24,6 @@ def generate_derivatives(total_size,mutation_function_list): #add mutation metho
     """
     finished_derivates = []#[sf.decoder(selfies_molecule)] #add the original in case of population-based algorithms
     for i in range(int(total_size/(len(mutation_function_list)-1))):
-        print('i:',i)
         for j in range(len(mutation_function_list)):
             finished_derivates.append(mutation_function_list[j]()[0])
     return finished_derivates
