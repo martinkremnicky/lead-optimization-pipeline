@@ -19,12 +19,13 @@ def mutate(selfies_molecule):
     selfies_molecule_list.insert(rnd_index,rnd_sample)
     return main.validate(''.join(selfies_molecule_list))
 
-def mutate_insert(selfies_molecule, fragment_size, random_size = False):
+def mutate_insert(selfies_molecule, fragment_size=3, random_size = True):
     """
     Generate and insert SELFIES fragment into a (SELFIES) molecule 
 
     :params fragment_size: size of fragment to be generated
         if ``random_size=True``, becomes upper limit of size
+        else is exact
     """
     if random_size == True:
         fragment_size = random.randint(1,fragment_size)

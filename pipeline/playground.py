@@ -7,9 +7,13 @@ from rdkit.Chem.rdMolDescriptors import CalcMolFormula, CalcExactMolWt
 from molmass import Formula
 import mutations as mut
 from functools import partial
+import metrics as met
+import pandas as pd
+import copy
+import numpy as np
 
 
-#just a 'fancy' printing function
+#just a 'fancy' printing function to separate outputs
 def line(string=''):
     print("-------"+string+"-------")
 
@@ -25,17 +29,13 @@ benzene_sf = sf.encoder(benzene)  # [C][=C][C][=C][C][=C][Ring1][=Branch1]
 #def test(variable): #TODO
 #    print([ i for i, a in locals().items() if a == variable][0],": ",variable)
 
-#print(CalcExactMolWt(Chem.MolFromSmiles(cystene)))
-mfl = [partial(mut.mutate,selfies_molecule=sf.encoder(mdma)),
-        partial(mut.mutate_insert,selfies_molecule=sf.encoder(mdma),fragment_size=10,random_size=True)]
+mutation_function_list = [
+    partial(mut.mutate),
+    partial(mut.mutate_insert)
+]
+metric_function_list = [
+    partial(met.mol_mass_SMILES),
+    partial(met.specific_element_count_SMILES,element = 'C')
+]
 
-derivatives = {}
-
-for i in (main.generate_derivatives(100,mfl)):
-    print(i)
-
-
-
-
-
-
+print(main.populate(100,benzene_sf,metric_function_list,mutation_function_list))
