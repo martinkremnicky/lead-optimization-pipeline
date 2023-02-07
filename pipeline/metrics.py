@@ -1,4 +1,4 @@
-import main
+import functions as func
 import selfies as sf
 import random
 #import rdkit
