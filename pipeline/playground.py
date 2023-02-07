@@ -1,4 +1,4 @@
-import main
+import functions as func
 import selfies as sf
 import random
 #import rdkit
@@ -38,4 +38,4 @@ metric_function_list = [
     partial(met.specific_element_count_SMILES,element = 'C')
 ]
 
-print(main.populate(100,benzene_sf,metric_function_list,mutation_function_list))
+print(func.populate(100,benzene_sf,metric_function_list,mutation_function_list))
