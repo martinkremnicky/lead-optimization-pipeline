@@ -1,13 +1,11 @@
-import functions as func
 import selfies as sf
-import random
-#import rdkit
 from rdkit import Chem
-from rdkit.Chem.rdMolDescriptors import CalcMolFormula, CalcExactMolWt
-from molmass import Formula
-import mutations as mut
-from functools import partial
+from rdkit.Chem.rdMolDescriptors import CalcExactMolWt
 
+def one_over_metric(number):
+    if number!=0:
+        return 1/number
+    return 0
 
 def mol_mass_SMILES(smiles_molecule):
     return CalcExactMolWt(Chem.MolFromSmiles(smiles_molecule))
