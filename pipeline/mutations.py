@@ -44,9 +44,12 @@ def deletion(selfies_molecule, n=1, random_size = True):
     if random_size:
         n = random.randint(0,n)
 
-    rnd_indexes = np.random.randint(0,len(selfies_molecule_list)-1, size=n).tolist()
+    rnd_indexes = np.random.randint(len(selfies_molecule_list)-1, size=n).tolist()
+    rnd_indexes.sort(reverse = True)
     if len(selfies_molecule_list)>n:
         for i in rnd_indexes:
-            del selfies_molecule_list[i]
-
+            try:
+                del selfies_molecule_list[i]
+            except:
+                continue
     return fn.validate(''.join(selfies_molecule_list))

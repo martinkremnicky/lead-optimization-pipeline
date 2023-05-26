@@ -1,11 +1,21 @@
 import selfies as sf
 import numpy as np
 import pandas as pd
+from rdkit import Chem
+from typing import Tuple
 
 ALPHABET = sf.get_semantic_robust_alphabet() # Gets the alphabet of robust symbols
 PLACEHOLDER_VALUE = -2
 
-def validate(selfies_molecule:str)->tuple[str, str]:
+def canonicalize_smiles(smiles):
+    try:
+        return Chem.MolToSmiles(Chem.MolFromSmiles(smiles), canonical=True)
+    except:
+        print(f"Failed at {smiles}")
+def canonicalize_selfies(selfies: str):
+    return Chem.MolToSmiles(Chem.MolFromSmiles(sf.decoder(selfies)), canonical=True)
+
+def validate(selfies_molecule:str)->Tuple[str, str]:
     """
     Converts a (generated) SELFIES molecule to SMILES and back to 'validate' it
     ### Output:
@@ -33,7 +43,8 @@ def initialize_pop(n: int, selfies_molecule, metric_function_list, mutation_func
     derivatives = pd.DataFrame(columns=column_names)
 
     while derivatives.drop_duplicates().shape[0] < n:
-        molecules = generate_derivatives(n - derivatives.drop_duplicates().shape[0], selfies_molecule, mutation_function_list)
+        molecules = [canonicalize_smiles(molecule) for molecule in
+                     generate_derivatives(n - derivatives.drop_duplicates().shape[0], selfies_molecule, mutation_function_list)]
         data = [[molecule, generation] + [metric(molecule) for metric in metric_function_list] for molecule in molecules]
         derivatives = pd.concat([derivatives.drop_duplicates(), pd.DataFrame(data=data, columns=column_names)])
     
