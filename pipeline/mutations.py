@@ -2,21 +2,41 @@ import selfies as sf
 import random
 import functions as fn
 import numpy as np
+import copy
+from constants import *
 
-ALPHABET = sf.get_semantic_robust_alphabet() # Gets the alphabet of robust symbols
 
-def bit_flip(selfies_molecule):
+def replacement(selfies_molecule, ring_aware = True): #TODO: add 'n' swaps?
     """
     Generate and swap (SELFIES) molecule's element for another from SELFIES alphabet
     """
-    selfies_molecule_list = list(sf.split_selfies(selfies_molecule))
-    rnd_index = random.randint(0,len(selfies_molecule_list)-1)
-    rnd_sample = random.sample(list(ALPHABET),1)[0]
+    min_size = 5 #hyperparam to prevent errors (empty SMILES) #1
+    try:
+        selfies_molecule_list = list(sf.split_selfies(selfies_molecule))
+    except:
+        print(f"split_selfies err for input: (check if SELFIES or SMILES)\n{selfies_molecule}")
+    selfies_size = len(selfies_molecule_list)
+    rnd_index = random.randint(0,selfies_size-1)
+
+
+    if selfies_size>min_size:
+        rnd_sample = random.sample(list(ALPHABET),1)[0]
+    else:
+        rnd_sample = random.sample(list(TRANSLATABLE_ALPHABET),1)[0]
+    if ring_aware:
+        try:
+            if selfies_molecule_list[rnd_index-1] in ['[Ring1]','[Ring2]']:
+                rnd_sample = random.sample(['[Ring1]','[Ring2]','[Branch1]','[=Branch1]'],1)[0]
+        except:
+            pass
     selfies_molecule_list.pop(rnd_index)
     selfies_molecule_list.insert(rnd_index,rnd_sample)
-    return fn.validate(''.join(selfies_molecule_list))
-
-def fragment_insertion(selfies_molecule, fragment_size=3, random_size = True):
+    try:
+        return fn.validate(''.join(selfies_molecule_list))
+    except:
+        replacement(selfies_molecule)
+    
+def addition(selfies_molecule, fragment_size=3, random_size = False, rings = True):
     """
     Generate and insert SELFIES fragment into a (SELFIES) molecule 
 
@@ -29,27 +49,36 @@ def fragment_insertion(selfies_molecule, fragment_size=3, random_size = True):
         fragment_size = random.randint(0,fragment_size)
     selfies_molecule_list = list(sf.split_selfies(selfies_molecule))
     rnd_index = random.randint(0,len(selfies_molecule_list))
-    rnd_sample = random.sample(list(ALPHABET), fragment_size) 
+    pool = list(ALPHABET)
+    if rings:
+        pool += [sf.encoder(i) for i in ['C1CC1','C1CCC1','C1CCCC1','C1CCCCC1','c1ccccc1']]
+
+    rnd_sample = random.sample(pool, fragment_size) 
     rnd_sample = ''.join(rnd_sample)
     selfies_molecule_list.insert(rnd_index,rnd_sample)
-    return fn.validate(''.join(selfies_molecule_list))
+    try:
+        return fn.validate(''.join(selfies_molecule_list))
+    except:
+        addition(selfies_molecule,fragment_size,random_size,rings)
 
-def deletion(selfies_molecule, n=1, random_size = True):
-    """
-    Delete `n` elements from a molecule
-    """
-
+def deletion(selfies_molecule, n=1, random_size = False): 
     selfies_molecule_list = list(sf.split_selfies(selfies_molecule))
-
     if random_size:
         n = random.randint(0,n)
+    if n >= len(selfies_molecule_list):
+        #raise ValueError(f"'n' should not be greater than or equal to the length of the molecule (n={n} vs len(mol)={len(selfies_molecule_list)} for {selfies_molecule})")
+        n-=len(selfies_molecule_list)-1
+    idx = random.sample(range(len(selfies_molecule_list)), n)
+    
+    # sort indices in descending order so deleting doesn't mess up subsequent indices
+    idx.sort(reverse=True)
 
-    rnd_indexes = np.random.randint(len(selfies_molecule_list)-1, size=n).tolist()
-    rnd_indexes.sort(reverse = True)
-    if len(selfies_molecule_list)>n:
-        for i in rnd_indexes:
-            try:
-                del selfies_molecule_list[i]
-            except:
-                continue
-    return fn.validate(''.join(selfies_molecule_list))
+    for i in idx:
+        del selfies_molecule_list[i]
+    try:
+        return fn.validate(''.join(selfies_molecule_list))
+    except:
+        deletion(selfies_molecule, n, random_size)
+
+def none(selfies_molecule):
+    return fn.validate(selfies_molecule)

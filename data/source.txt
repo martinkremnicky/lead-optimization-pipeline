@@ -1,0 +1,1 @@
+https://github.com/AustinT/ai4sci-2021-denovo-benchmarks/tree/main/data/guacamol-splits
