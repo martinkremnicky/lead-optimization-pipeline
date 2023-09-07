@@ -18,6 +18,7 @@ def replacement(selfie, n=1, random_size = False, ring_aware = False): #TODO: ad
     selfies_size = len(selfies_molecule_list)
     if selfies_size>min_size:
         rnd_sample = random.sample(list(ALPHABET),1)[0]
+        #rnd_sample = random.sample(list(ALPHABET)+['[Ring1][=Branch1]','[Ring1][Branch1]']+['[Branch1][Ring2]','[Branch1][Ring1]','[Branch1][C]'],1)[0]
     else:
         rnd_sample = random.sample(list(TRANSLATABLE_ALPHABET),1)[0]
     if random_size:
@@ -37,7 +38,7 @@ def replacement(selfie, n=1, random_size = False, ring_aware = False): #TODO: ad
     except:
         replacement(selfie, n, random_size, ring_aware)
     
-def addition(selfies_molecule, fragment_size=1, random_size = False, rings = True):
+def addition(selfies_molecule, fragment_size=1, random_size = False, rings = True, branches = True):
     """
     Generate and insert SELFIES fragment into a (SELFIES) molecule 
 
@@ -52,7 +53,9 @@ def addition(selfies_molecule, fragment_size=1, random_size = False, rings = Tru
     rnd_index = random.randint(0,len(selfies_molecule_list))
     pool = list(ALPHABET)
     if rings:
-        pool += [sf.encoder(i) for i in ['C1CC1','C1CCC1','C1CCCC1','C1CCCCC1','c1ccccc1']]
+        pool += [sf.encoder(i) for i in ['C1CC1','C1CCC1','C1CCCC1','C1CCCCC1','c1ccccc1']]*2
+    if branches:
+        pool += ['[Branch1][Ring2]','[Branch1][Ring1]','[Branch1][C]']*2
 
     rnd_sample = random.sample(pool, fragment_size) 
     rnd_sample = ''.join(rnd_sample)

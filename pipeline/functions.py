@@ -13,7 +13,11 @@ import numpy as np
 from typing import List, Tuple, Dict
 from collections import Counter
 from copy import deepcopy
-from pandas import DataFrame
+from pandas import DataFrame #FIXME not needed
+import itertools
+from collections import Counter
+import edlib
+#from numba import njit
 
 
 
@@ -25,6 +29,7 @@ def canonicalize_smile(smile: str) -> str:
         pass
 
 def canonicalize_selfie(selfie: str) -> str:
+    """returns SMILES"""
     try: 
         return Chem.MolToSmiles(Chem.MolFromSmiles(sf.decoder(selfie)), canonical=True)
     except:
@@ -53,7 +58,7 @@ def column_to_list(df: pd.DataFrame, col_name:str) -> pd.DataFrame:
     return df[col_name].tolist()
 
 def get_smiles(df: pd.DataFrame, verify=True) -> list:
-    accepted_column_names = ["SMILES molecule","smiles", "SMILES"] #FIXME perhaps a more flexible approach would be better
+    accepted_column_names = ["SMILES","smiles", "SMILES"] #FIXME perhaps a more flexible approach would be better
     for name in accepted_column_names:
         try:
             if verify:
@@ -64,54 +69,31 @@ def get_smiles(df: pd.DataFrame, verify=True) -> list:
             pass
     print(f"Could not find a column with an accepted name. Accepted names:\n{accepted_column_names}") #TODO make `raise`?
 
-""" def generate_derivatives(n:int, selfie: str, mutations: list) -> list:
+def min_max_normalize(series: pd.Series, bias = 0) -> pd.Series:
     """
-    #Creates `n` derivatives of SELFIES molecule, outputs SMILES list by default.
-"""
-    idx = np.arange(n) % len(mutations) #e.g. [0 1 2 3 4 5...] % 3 -> [0 1 2 0 1 2 ...] 
-    return [mutations[i](selfie)[0] for i in idx]
+    Perform min-max normalization on a specific column in a DataFrame.
 
-def initialize_pop(n: int, selfie, metrics, mutations, generation=0):
+    Args:
+        series (pd.Series): The input Series containing the data.
+        minimal_value (float): The minimal value to add after normalization.
+
+    Returns:
+        pd.Series: The normalized values of the specified column, with the minimal value added.
     """
-    #Creates a data frame of n derived (SMILES) molecules, with evaluated metrics as additional columns
-"""
-    column_names = ["SMILES molecule", "Generation"] + [f"Metric {i+1}" for i in range(len(metrics))]
-    derivatives = pd.DataFrame(columns=column_names)
+    series = np.asarray(series)
+    #print(type(series),np.min(series))
+    #print(f"{df[column_name][0]} {type(df[column_name][0])}\n{df[column_name].max()} {type(df[column_name].max())}\n{df[column_name].min()} {type(df[column_name].min())}")
+    divisor = (np.max(series) - np.min(series))
+    if divisor == 0:
+        divisor = 1
+    return np.divide((series - np.min(series)), divisor) + bias #give non-0 chance to 'worst' solutions
 
-    while derivatives.drop_duplicates().shape[0] < n:
-        molecules = [canonicalize_smile(molecule) for molecule in
-                     generate_derivatives(n - derivatives.drop_duplicates().shape[0], selfie, mutations)]
-        
-        data = [[molecule, generation] + [metric(molecule) for metric in metrics] for molecule in molecules]
 
-        derivatives = pd.concat([derivatives.drop_duplicates(), pd.DataFrame(data=data, columns=column_names)])
-    
-    return sort_df_by_col_index(derivatives, 1)
-
-def populate_from_df(df: pd.DataFrame, n: int, metrics: list, mutations: list, generation: int, 
-                     fitness='Isolation score', remove_columns=['Isolation score','Pareto Front'], include_df=False): #TODO: implement `include df`
-    """
-    #Outputs a populated data frame with molecules extracted from input data frame.
-"""
-    norm_weights = _normalize_weights(df, fitness).astype(int) 
-    df.drop(remove_columns, axis=1, errors='ignore', inplace=True)
-    seeds = get_smiles(df,verify=False) #seeds = staring molecules
-
-    temp_gen_list = [initialize_pop(weighted_n, sf.encoder(seed), metrics, mutations, generation) 
-                     for seed, weighted_n in zip(seeds, norm_weights)]
-
-    new_gen = pd.concat(temp_gen_list)
-    return sort_df_by_col_index(new_gen, 1)
- """
-def min_max_normalize(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
-    df[column_name] = (df[column_name] - df[column_name].min()) / (df[column_name].max() - df[column_name].min())
-    return df
 
 def generate_derivatives(n:int,
                         selfies_seeds: List[str],
                         mutations: list,
                         crossover = False,
-                        force_unique = False, #TODO implement `force_unique`
                         crossover_ratio = 0.25,
                         crossover_type = 0,
                         short_rings=False) -> List[str]:  
@@ -119,228 +101,330 @@ def generate_derivatives(n:int,
     Creates `n` derivatives of seed SELFIES molecules, outputs SMILES list.
     If `crossover = True`, a `crossover_ratio` of `n` is taken and crossed over instead of mutated
     """
-
-    if crossover:
-        random.shuffle(selfies_seeds)
-        n_crossed = round(n * crossover_ratio)
-        seeds_crossed = selfies_seeds[:n_crossed]
-        seeds_crossed = (xo.random_individual_crossover(seeds_crossed,n_crossed, crossover_type=crossover_type)) 
-        n_untouched = n - n_crossed
-        seeds_untouched = selfies_seeds[n_crossed:]
-        if short_rings:
-            output = selfies_to_smiles_list([shorten_rings(s) for s in seeds_crossed])
-        else:
-            output = selfies_to_smiles_list(seeds_crossed)
-    else:
-        seeds_untouched = selfies_seeds
+    if True:
+        seeds_untouched = []
+        seeds_crossed = []
         output = []
 
-    len_seeds_untouched = len(seeds_untouched) #10
-    partitions = len(mutations) #3
+        if crossover_ratio > 0:
+            random.shuffle(selfies_seeds)
+            n_cross = round(n * crossover_ratio)
 
-    idx = np.arange(len_seeds_untouched) % partitions #[0 1 2 0 1 2 0 1 2 0] #TODO change to cycle
-
-    for seed_i in range(len_seeds_untouched):
-        i = idx[seed_i] # 0 or 1 or 2
-        #TODO: implement "uniqueness" (non-repeating) (WHILE NEW MOLECULE IN OUTPUT GENERATE ANOTHER ONE)
-        #TODO delete these try excepts... #maybe don't lol, good for debugging
-        try:
-            a =(seeds_untouched[seed_i])
-        except:
-            print(f"seeds_untouched[seed_i] err\nseeds_untouched: {type(seeds_untouched)}\n{seeds_untouched}\nseed_i: {type(seed_i)}\n{seed_i}")
-        try:
-            a = (mutations[i])
-        except:
-            print("mutations[i] err")
-            print(f"mut: {mutations}\ni: {i}")
-        try:
-            a=(mutations[i](seeds_untouched[seed_i])[0])
-        except:
-            print("mutations[i](seeds_untouched[seed_i])[0] err")
-            print(f"mut: {mutations}\ni: {i} \nseeds_untouched {type(seeds_untouched)}\n{seeds_untouched}\nseed_i: {type(seed_i)}\n{seed_i}")
-        if short_rings:
-            new = shorten_rings(mutations[i](seeds_untouched[seed_i])[1])
+            if n_cross > 1:
+                seeds_to_cross = selfies_seeds[:n_cross]
+                seeds_crossed = xo.random_individual_crossover(seeds_to_cross, n_cross, crossover_type=crossover_type)
+                seeds_untouched = selfies_seeds[n_cross:]
+            else:
+                seeds_untouched = selfies_seeds
+            output = selfies_to_smiles_list([shorten_rings(s) if short_rings else s for s in seeds_crossed])
         else:
-            new = mutations[i](seeds_untouched[seed_i])[1] #use function 0/1/2 on every 3rd seed to get smiles
-        output.append(sf.decoder(new))  
-    return output
+            seeds_untouched = selfies_seeds
+
+
+    #cycle = itertools.cycle(range(len(mutations)))
+    len_su = len(seeds_untouched)
+    mut_indexes = random.choices(range(len(mutations)),k=len_su)
+    for i in range(len_su):
+    #for seed in seeds_untouched:
+        #i = next(cycle)
+        #new = mutations[i](seed)[1]
+        new = mutations[mut_indexes[i]](seeds_untouched[i])[1]
+        output.append(sf.decoder(new))
+    return output 
 
 def initialize_pop(n: int, selfie, metrics, mutations, generation=0):
     """
     Creates a data frame of n derived (SMILES) molecules, with evaluated metrics as additional columns
     """
     seeds = [selfie]
-    derivatives = generate_derivatives(n,seeds,mutations, crossover=False) #crossover MUST be false, this is only for generation from a single lead molecule
-    return _common_loop_1(derivatives, metrics,generation)
-
+    derivatives = generate_derivatives(n,seeds,mutations, crossover=False) #crossover MUST be false, this is only for generation from a single lead molecule #..does it?
+    metric_evaluated_df, cost, lookup = evaluate_smiles(derivatives, metrics,generation)
+    fitness_evaluated_df = add_fitness(metric_evaluated_df, generation)
+    return fitness_evaluated_df, cost, lookup
+    
 def populate_from_df(df: pd.DataFrame,
                     n: int,
                     metrics: list,
                     mutations: list,
                     generation: int,
-                    fitness='Isolation score',
+                    fitness='Fitness',
                     include_seeds=True,
                     crossover=True,
-                    force_unique = False,
                     crossover_ratio = 0.25,
                     crossover_type = 0,
-                    fitness_proportional = True,
+                    proportional_sampling = True,
                     lookup_dict = {},
-                    get_cost = True):
+                    randomize_seeds = False,#True,
+                    delete_duplicates = False,
+                    exp = 2,
+                    min_fitness = 0.1,
+                    normalize_fitness = True,
+                    avg_dist = True,
+                    use_fitness = True):
     """
     Outputs a populated data frame with molecules extracted from input data frame.
     """
-    seeds = smiles_to_selfies_list([randomize_smiles(s) for s in get_smiles(df,verify=False)]) #seeds = staring molecules
+    #print('fn.py - populate_from_df',metrics)
+    df.sort_values(fitness,ascending=False, inplace=True)
 
+    if randomize_seeds:
+        df["SMILES"] = df["SMILES"].apply(randomize_smile)
+    #    seeds = smiles_to_selfies_list(get_smiles(df,verify=False)) #seeds = starting molecules
+    else:
+        if delete_duplicates:
+            df.drop_duplicates('Canonical SMILES',inplace=True)
+    seeds = smiles_to_selfies_list(get_smiles(df,verify=False))
+    
+    
     # I WANT n OF THEM
     # HOW MANY MORE DO I NEED TO MAKE?
     # n MINUS WHAT I HAVE, len(seeds)
     # THAT WILL BE m
 
+    min_n = 2 #has to be above 1, else infinite loop due to elitism
+
+    if n<min_n:
+        n = min_n
+
     if include_seeds:
         m = n - len(seeds)
     else:
         m = n
+    #print('seeds:',len(seeds),m,'n',n,'generation',generation,)
 
-    if fitness_proportional:
-        df = min_max_normalize(df, fitness) 
-        df[fitness]+=0.075 #give non-0 chance to 'worst' solutions
-        proportional_seeds = random.choices(seeds, weights=(df[fitness]**2).tolist(), k=m) #create fitness proportional list
+    if normalize_fitness:
+        df[fitness] = min_max_normalize(df[fitness], min_fitness)
+
+    if exp != 1:
+        df[fitness]=np.float_power(df[fitness],np.float16(exp))
+
+
+    if proportional_sampling:
+        sampled_seeds = random.choices(seeds, weights=(df[fitness]), k=m) #create fitness proportional list
     else:
-        proportional_seeds = random.choices(seeds, k=m)
+        sampled_seeds = random.choices(seeds, k=m)
     derivatives = generate_derivatives(n=m,
-                                        selfies_seeds= proportional_seeds,
+                                        selfies_seeds= sampled_seeds,
                                         mutations=mutations,
                                         crossover=crossover,
-                                        force_unique = force_unique, 
                                         crossover_ratio = crossover_ratio,
                                         crossover_type = crossover_type)
     if include_seeds:
         derivatives.extend(selfies_to_smiles_list(seeds))
-    #derivatives = list (of SMILES)
-    return _common_loop_1(derivatives, metrics, generation, lookup_dict)
 
-def convert_seeds_to_df(df: pd.DataFrame, metrics: List):
+    metric_evaluated_df, cost, lookup = evaluate_smiles(derivatives, metrics, generation, lookup_dict, randomize_seeds)
+    if use_fitness:
+        fitness_evaluated_df = add_fitness(metric_evaluated_df, avg_dist, generation)
+        #print(f"+=+=+ der, met, fit lens: {len(derivatives),len(metric_evaluated_df),len(fitness_evaluated_df)}")
+        return fitness_evaluated_df, cost, lookup
+    return metric_evaluated_df, cost, lookup
+
+def seeds_to_pop(df: pd.DataFrame, metrics: List):
     """
-    Takes df of seeds and adds metrics.
+    Takes df of seeds and adds metrics as columns.
     """
-    return _common_loop_1(get_smiles(df),metrics,0)
+    #print('fn.py - seeds_to_pop',metrics)
+    metric_evaluated_df, cost, lookup = evaluate_smiles(get_smiles(df),metrics,0)
+    fitness_evaluated_df = add_fitness(metric_evaluated_df, True, 0)
+    return fitness_evaluated_df, cost, lookup
 
-evaluated_canonical_chems = {} #TODO store chemicals with their metric values e.g. {'COC': [0.754, 0.598]}
+def dataframe_to_dict(df): #TODO: un-hardcode
+    return df.set_index('Canonical SMILES')['Metric 1'].to_dict()
 
-from collections import Counter
-if True:
-    def _common_loop_1(smiles: List[str], metrics: List, generation: int, lookup = {}): #TODO: rename #FIXME what if more than one metric is presented?
-        """
-        Outputs SMILES 
-        """
-        canonical_smiles = [canonicalize_smile(s) for s in smiles]  # 'C1C(C)C1', 'C1(C)CC1' -> if same, turn into unified form 
-        chemical_freq = count_list_elements(canonical_smiles)     # {'C1C(C)C1': 5, 'COC': 3 , ...}
-        chemical_freq_keys = list(chemical_freq.keys())         # ['C1C(C)C1', 'COC']
-        #chemical_freq_values = list(chemical_counts.values())     # [5, 3]
 
-        #print(f"lookup (len {len(lookup)}) {lookup}")
-        new_chems = []
-        old_chems = []
-        old_metric_values = []
-        new_metric_values = []
-        for c in chemical_freq_keys:
-            if c in lookup.keys():
-                old_chems.append(c)
-                old_metric_values.append(lookup[c])
-            else:
-                new_chems.append(c)
+def evaluate_smiles(smiles: List[str], metrics: List, generation: int, lookup = {}, randomize =True): #TODO: rename #FIXME what if more than one metric is presented?
+    #print('fn.py - evaluate_smiles',metrics)
+    """
+    Outputs:
+    1. SMILES df with metrics
+    2. evaluation costs
+    3. updated metric lookup
+    """
+    canonical_smiles = [canonicalize_smile(s) for s in smiles]  # 'C1C(C)C1', 'C1(C)CC1' -> if same, turn into unified form 
+    chemical_freq = Counter(canonical_smiles)     # {'C1C(C)C1': 5, 'COC': 3 , ...}
 
-        for metric in metrics:
-            try:
-                new_metric_values.append(metric(new_chems))  #['C1CC1', 'COC'] -> [0.546, 0.895]
-            except:
-                print(f"metric(SMILES) err for:\nmetric: {metric}\nSMILES {chemical_freq_keys}")
+    new_chems = []
+    old_chems = []
 
-        old_chem_freq = filter_dictionary(chemical_freq, old_chems)
-        new_chem_freq = filter_dictionary(chemical_freq, new_chems)
-        if old_chem_freq != {}:
-            #print(len(old_chem_freq),'+',  len(new_chem_freq), '=')
-            new_chem_freq.update(old_chem_freq)
-            #print(len(new_chem_freq))
-        merged_freq = copy.copy(new_chem_freq)
-        #print(f"old_chem_freq\n{old_chem_freq}\nnew_chem_freq\n{new_chem_freq}\nmerged_freq\n{merged_freq}")
-        merged_chems = new_chems + old_chems
-        merged_metrics = new_metric_values[0] + old_metric_values #FIXME why the [0]? is it bcs it's a single metric? then it needs fixing
+    [old_chems.append(c) if c in lookup.keys() else new_chems.append(c) for c in chemical_freq.keys() ]
+    
+    old_metric_values = [lookup[c] for c in old_chems]
+    new_metric_values = []
+    for metric in metrics:
+        try:
+            new_metric_values.append(metric(new_chems))  #['C1CC1', 'COC'] -> [0.546, 0.895]
+        except:
+            print(f"metric(SMILES) err for:\nmetric: {metric}\nSMILES {chemical_freq.keys()}")
+            new_metric_values.append(metric(new_chems))
+    
+    old_chem_freq = {k: v for k, v in chemical_freq.items() if k in old_chems}
+    new_chem_freq = {k: v for k, v in chemical_freq.items() if k in new_chems}
+
+    merged_freq = {**new_chem_freq, **old_chem_freq}
+    merged_metrics = new_metric_values[0] + old_metric_values #FIXME why the [0]? is it bcs it's a single metric? then it needs fixing
+
+    smiles_list, metric_list = expand_by_frequency(merged_freq, merged_metrics, randomize) #unified forms -> [ [random froms * n], [metrics * n] ]
+    selfies_list = [sf.encoder(sm) for sm in smiles_list]
+    can_smiles = [canonicalize_smile(sm) for sm in smiles_list]
+    can_selfies = [sf.encoder(canonicalize_smile(sm)) for sm in smiles_list]
+    
+    split_selfies = [list(sf.split_selfies(sel)) for sel in can_selfies]
+
+    generations = [generation] * len(smiles_list) 
+    data = [smiles_list, selfies_list, can_smiles, can_selfies, split_selfies, generations, metric_list]
+    
+    column_names = ["SMILES","SELFIES","Canonical SMILES","Canonical SELFIES", "Split canonical SELFIES", "Generation"] + [f"Metric {i+1}" for i in range(len(new_metric_values))]
+    
+    cost = len(new_metric_values[0]) #FIXME the [0]..
+
+    lookup.update({nc: nmv for nc, nmv in zip(new_chems, new_metric_values[0])})
+
+
+    metric_evaluated_df = _lists_to_dataframe(data, column_names)
+    return metric_evaluated_df, cost, lookup
+
+
+def add_fitness(df:pd.DataFrame, avg_dist = True, generation = 1): #FIXME hardcoded for Metric 1
+    
+    
+    c = 25
+    diff_factor = 0.1
+    low_bar = 1.0
+
+    if (not avg_dist) or (generation>c):
+        df['Fitness'] = df['Metric 1']
+        df['avg_distance'] = 0
+        df['time_decline'] = 0
+        df['time_increase'] = 0
+        df['rep'] = 0
+        df['atr'] = 0
+        df['add'] = 0
+    else:
+        repulsion = 0
+        attraction = 0
+        time_decline = (-(np.divide(1,c)*generation)+1)
+        #time_decline = 1
+        time_increase = generation-c
+
+
+
+
+        column_name = "Split canonical SELFIES"
+        metric_ones = df['Metric 1'].values
+        metric_max = metric_ones.max()
+        max_addition = metric_max  * time_decline * diff_factor
+        above_threshold_selfies = df[(df['Metric 1']+max_addition)>metric_max * low_bar][column_name]
+        above_threshold_selfies = [tuple(s) for s in above_threshold_selfies]
+
+
+
+        if False:
+            SELFIES_as_arr = df[column_name].values
+            avg_distance = df[column_name].apply(avg_edit_distance, df_as_arr=SELFIES_as_arr)
+            avg_distance = min_max_normalize(avg_distance) #arr of 0 to 1
+            avg_distance = np.multiply((avg_distance),np.float16(diff_factor))
+        else:
+            SELFIES_as_arr = df[column_name].values
+            avg_distance = df[column_name].apply(
+                lambda selfie: (avg_edit_distance(row= selfie,df_as_arr=SELFIES_as_arr)) if tuple(selfie) in above_threshold_selfies else 0
+
+
+            )
+            avg_distance = min_max_normalize(avg_distance) #arr of 0 to 1
+            avg_distance = np.multiply((avg_distance),np.float16(diff_factor)) #FUUUUUUUUUUUCK
+        repulsion = avg_distance**2 * time_decline
+        
+        
+        
+        # repulsion =  (np.multiply((  min_max_normalize(avg_distance)  ),np.float16(diff_factor)))**2 * time_decline
+        
+        
+        
+        #if generation>25:
+        #    print('A:\n',avg_distance)
+        #total_distance = df[column_name].apply(total_edit_distance, df_as_arr=df_as_arr)
+        #total_distance = min_max_normalize(total_distance.to_numpy())
+        #total_distance = (total_distance.to_numpy())*0.01
+        #avg_distance = np.divide(total_distance, np.size(total_distance))
+        #avg_distance = np.mean(total_distance)
+
+        #if generation>25:
+        #    print('B:\n',avg_distance)
+
+        #if generation>25:
+        #    print('C:\n',avg_distance)
+        #repulsion = ((100/(generation+1)) * avg_distance) 
+        #attraction = (1.05**generation * avg_distance) *0.1
+
+        k1 = 1
+        k2 = 2
+        k3 = 3
+        k4 = 4
         
 
-        smiles_list, metric_list = scramble_quantified_smiles(merged_freq, merged_metrics) #unified forms -> [ [random froms * n], [metrics * n] ]
-        generations = [generation] * len(smiles_list) #list (of numeric values)
-        data = [smiles_list, generations, metric_list]#.copy
-        #data.insert(1,generations) # [[random froms * n], [metrics * n]] -> [[random froms * n], [generations], [metrics * n]]
-        column_names = ["SMILES molecule", "Generation"] + [f"Metric {i+1}" for i in range(len(new_metric_values))]
-        cost = len(new_metric_values[0]) #FIXME the [0]..
 
-        #EXPAND LOOKUP DICT
-        for nc, nmv in zip(new_chems,new_metric_values[0]): #FIXME the [0]
-            lookup[nc] = nmv
-        #print(f"new lookup (len {len(lookup)}) {lookup}")
-        #print(f"cost {cost}")
-        return _lists_to_dataframe(data, column_names), cost, lookup
-else:
 
-    def _common_loop_1(smiles: List[str], metrics: List, generation: int, lookup: Dict = None) -> Tuple[DataFrame, int, Dict]:
-        """
-        Outputs SMILES 
-        """
-        # If lookup is not provided, initialize it as an empty dictionary
-        if lookup is None:
-            lookup = {}
 
-        canonical_smiles = [canonicalize_smile(s) for s in smiles]
-        chemical_freq = Counter(canonical_smiles)
+        add = df['Metric 1'].max() * np.asarray([r if r>0 else 0 for r in repulsion])
+        df['avg_distance'] = avg_distance
+        df['time_decline'] = time_decline
+        df['time_increase'] = time_increase
+        df['rep'] = repulsion
+        df['atr'] = attraction
+        df['add'] = add
 
-        old_chems = list(set(chemical_freq.keys()) & set(lookup.keys()))
-        new_chems = list(set(chemical_freq.keys()) - set(old_chems))
-        
-        old_metric_values = [lookup[c] for c in old_chems]
-        
-        new_metric_values = []
-        for metric in metrics:
-            try:
-                new_metric_values.append(metric(new_chems))
-            except Exception as e:
-                print(f"metric(SMILES) err for:\nmetric: {metric}\nSMILES {chemical_freq.keys()}")
-                print(f"Error: {e}")
-        
-        old_chem_freq = {k: v for k, v in chemical_freq.items() if k in old_chems}
-        new_chem_freq = {k: v for k, v in chemical_freq.items() if k in new_chems}
 
-        merged_freq = {**new_chem_freq, **old_chem_freq}
-        
-        merged_chems = new_chems + old_chems
-        merged_metrics = new_metric_values[0] + old_metric_values
 
-        smiles_list, metric_list = scramble_quantified_smiles(merged_freq, merged_metrics)
-        generations = [generation] * len(smiles_list)
 
-        data = [smiles_list, generations, metric_list]
-        column_names = ["SMILES molecule", "Generation"] + [f"Metric {i+1}" for i in range(len(new_metric_values))]
+        df['Fitness'] = df['Metric 1'] + add
+    return df.sort_values('Fitness',ascending=False)
 
-        cost = len(new_metric_values[0])
-        
-        #EXPAND LOOKUP DICT
-        for nc, nmv in zip(new_chems, new_metric_values[0]):
-            lookup[nc] = nmv
+def avg_edit_distance(row, df_as_arr):
+    similarity_sum = 0
+    num_comparisons = 0
+    for other_string in df_as_arr:
+        if row != other_string:
+            similarity_sum += edlib.align(((row)),((other_string)))['editDistance']
+            num_comparisons += 1
+    return similarity_sum / num_comparisons if num_comparisons > 0 else 0
 
-        return _lists_to_dataframe(data, column_names), cost, lookup
+#def avg_edit_distance(row, df_as_arr):
+#    distances = [edlib.align(row, other_string)['editDistance'] for other_string in df_as_arr if row != other_string]
+#    return np.mean(distances) if distances else 0
+
+
+
+def total_edit_distance(row, df_as_arr):
+    similarity_sum = sum(edlib.align(row, other_string)['editDistance'] for other_string in df_as_arr if row != other_string)
+    return similarity_sum
+
+
+import numpy as np
+from itertools import combinations
+
+def unique_handshakes(arr):
+    # Convert the NumPy array to a Python set to remove duplicates
+    unique_values = set(arr)
+    
+    # Create the unique handshakes using combinations
+    handshakes = list(combinations(unique_values, 2))
+    
+    return handshakes
+
+
 
 
 def count_list_elements(lst):
     return dict(Counter(lst))
 
-def scramble_quantified_smiles(smiles_frequencies, metrics: List):
+def expand_by_frequency(smiles_frequencies, metrics: List, randomize = True):
     smiles_list = []
     metric_list = []
     for (k, v), metric_val in zip(smiles_frequencies.items(), metrics):
         smiles_list.extend([k]*v)
         metric_list.extend([metric_val]*v)
-    smiles_list = [randomize_smiles(s) for s in smiles_list]
+    if randomize:
+        smiles_list = [randomize_smile(s) for s in smiles_list]
     
     return smiles_list, metric_list
 
@@ -365,7 +449,7 @@ def _add_metrics(smiles: List[str], metrics: List): #TODO: remake wrt above func
     
     data = [smiles]
     data.extend(metrics)
-    column_names = ["SMILES molecule"] + [f"Metric {i+1}" for i in range(len(metrics))]
+    column_names = ["SMILES"] + [f"Metric {i+1}" for i in range(len(metrics))]
     
     return _lists_to_dataframe(data, column_names)
 
@@ -384,7 +468,7 @@ def smiles_to_selfies_list(smiles: list) -> list:
     for s in smiles:
         try:
             output.append(sf.encoder(s))
-        except:
+        except: #FIXME delet this
             print(f"Error converting SMILES {s} to SELFIES, so it was skipped")
             continue
     return output
@@ -459,8 +543,8 @@ def get_percent_best(df: pd.DataFrame, column_name: str, percentage: float, mini
 def get_canonical_percent_best(df: pd.DataFrame, column_name: str, percentage: float, minimize=True): #FIXME works only for single column #TODO make a multi-column version
     if len(column_name)>1:
         print("too many columns to optimize, pick only one")
-    df['SMILES molecule'] = (df['SMILES molecule'].apply(lambda x: canonicalize_smile(x)))
-    df = df.drop_duplicates()
+    #df['SMILES'] = (df['SMILES'].apply(lambda x: canonicalize_smile(x)))
+    df = df.drop_duplicates(subset='Canonical SMILES')
     return df.sort_values(column_name,ascending=minimize).head(int(np.ceil(len(df)*(percentage))))
 
 def get_percent_worst(df: pd.DataFrame, column_name: str, percentage: float, minimize=True): #FIXME works only for single column #TODO make a multi-column version
@@ -512,19 +596,19 @@ def distribute_budget(budget: int, iterations:int) -> List[int]:
     return num_evals
 
 def get_diversity(df: pd.DataFrame, generation:int) -> float:
-    data = df[df['Generation']==generation]['SMILES molecule']
+    data = df[df['Generation']==generation]['SMILES']
     return len(pd.unique(data.apply(lambda x: canonicalize_smile(x))))/len(data)
     
 
 def get_last_diversity(df: pd.DataFrame) -> float:
-    data = df[df['Generation']==df['Generation'].max()]['SMILES molecule']
+    data = df[df['Generation']==df['Generation'].max()]['SMILES']
     return (len(pd.unique(data.apply(lambda x: canonicalize_smile(x))))/len((data)))
 
 import rdkit
 
 
 #ADAPTED FROM STONED PAPER
-def randomize_smiles(smile:str) -> str:
+def randomize_smile(smile:str) -> str:
     """returns SMILES"""
     # convert SMILES string to an RDKit molecule
     mol = Chem.MolFromSmiles(smile)
@@ -539,7 +623,7 @@ def randomize_smiles(smile:str) -> str:
     return rdkit.Chem.MolToSmiles(mol, canonical=False, doRandom=True, isomericSmiles=False,  kekuleSmiles=True) 
 
 def randomize_selfie(selfie:str) -> str:
-    return sf.encoder(randomize_smiles(sf.decoder(selfie)))
+    return sf.encoder(randomize_smile(sf.decoder(selfie)))
 
 
 

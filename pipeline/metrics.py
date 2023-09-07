@@ -3,10 +3,12 @@ from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcExactMolWt
 from src.objective.guacamol.get_objective import get_objective
 from typing import Union
-from crossovers import fingerprint_similarity
+import crossovers as xo
 
 def compound_similarity(smiles, target_smile):
-    return [fingerprint_similarity(smile,target_smile) for smile in smiles]
+    #print('met.py - compound_similarity input',smiles[0],"\n",smiles)
+    fp_target = xo.get_fingerprint(target_smile)
+    return [xo.fingerprint_similarity(xo.get_fingerprint(smile),fp_target) for smile in smiles]
 
 def one_over_metric(number):
     if number!=0:

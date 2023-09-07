@@ -7,28 +7,64 @@ import random
 from constants import *
 import functions as fn
 import mutations as mut
-#import metrics as met
-
 from rdkit import Chem
 from rdkit import DataStructs
 from rdkit.Chem import AllChem
-
 from rdkit import DataStructs
-
 import time
+from functools import lru_cache
 
+
+def joint_sim(M: List[str],m: str) -> float:
+    sim_list = np.array([fingerprint_similarity(m_i,m) for m_i in M])
+    sim_sum = np.mean(sim_list)
+    return sim_sum - (sim_list.max() - sim_list.min())
+
+def fingerprint_similarity(fp1, fp2) -> float:
+    return DataStructs.TanimotoSimilarity(fp1, fp2)
+
+def get_fingerprint(smile):
+    mol = Chem.MolFromSmiles(smile)
+    fpgen = AllChem.GetRDKitFPGenerator()
+    return fpgen.GetFingerprint(mol)
+
+def get_median_molecule(selfie1: str, selfie2: str) -> str:
+    chem_path_selfies = bidirectional_chem_path(selfie1, selfie2)
+    chem_path_smiles = [str(sf.decoder(chem)) for chem in chem_path_selfies]
+
+    smiles1 = str(sf.decoder(selfie1))
+    smiles2 = str(sf.decoder(selfie2))
+    
+    fp1 = get_fingerprint(smiles1)
+    fp2 = get_fingerprint(smiles2)
+
+    joint_sim_list = []
+    for chem in chem_path_smiles: 
+        fp3 = get_fingerprint(chem)
+        joint_sim_list.append(joint_sim([fp1,fp2], fp3))
+    max_js =  max(joint_sim_list) #biggest JS
+    return chem_path_selfies[joint_sim_list.index(max_js)]
 
 def random_individual_crossover(selfies: List[str],n:int, crossover_type = 0) -> List[str]:
     """
     Returns `n` offspring of two randomly selected parents.
     """
     new_pool = []
+
+    selfies = [sf.encoder(fn.canonicalize_selfie(selfie)) for selfie in selfies]
+    
     for _ in range(n):
         j = random.randint(0,len(selfies)-1)
         k = random.randint(0,len(selfies)-1)
-        if [j] == [k]: #a while loop will get stuck at n = 1
-            k = random.randint(0,len(selfies)-1)
-        chem_path = all_chem_paths(selfies[j], selfies[k])
+        if selfies[j] == selfies[k]: #one more attempt at picking two different  individuals
+            k = random.randint(0,len(selfies)-1) 
+
+
+
+        chem_path = chemical_path(selfies[j], selfies[k])
+
+
+        
         if crossover_type == 0:
             new_pool.append(get_path_random(chem_path))
         elif crossover_type == 1:
@@ -37,36 +73,6 @@ def random_individual_crossover(selfies: List[str],n:int, crossover_type = 0) ->
             print("Incorrect crossover type selected")
     return new_pool
 
-def get_median_molecule(selfie1: str, selfie2: str) -> str:
-    #print(f"get_median_molecule({selfies1}, {selfies2})")
-    chem_path_smiles = [str(sf.decoder(chem)) for chem in bidirectional_chem_path(selfie1, selfie2)]
-
-    smiles1 = str(sf.decoder(selfie1))
-    smiles2 = str(sf.decoder(selfie2))
-
-    joint_sim_list = []
-    for chem in chem_path_smiles: 
-        joint_sim_list.append(joint_sim([smiles1,smiles2],chem))
-    max_js =  max(joint_sim_list) #biggest JS
-    return sf.encoder(chem_path_smiles[joint_sim_list.index(max_js)])
-
-
-
-def joint_sim(M: List[str],m: str) -> float:
-    sim_sum = 0
-    sim_list = []
-    for m_i in M:
-        sim_sum += fingerprint_similarity(m_i,m)
-        sim_list.append(fingerprint_similarity(m_i,m))
-    sim_sum = sim_sum/len(M)
-    return sim_sum - (max(sim_list) - min(sim_list))
-
-def fingerprint_similarity(smile1:str, smile2:str) -> float:
-    #print(f"fingerprint_similarity({smiles1},{smiles2})")
-    mols = [Chem.MolFromSmiles(smile1), Chem.MolFromSmiles(smile2)]
-    fpgen = AllChem.GetRDKitFPGenerator()
-    fps = [fpgen.GetFingerprint(x) for x in mols]
-    return DataStructs.TanimotoSimilarity(fps[0], fps[1])
 
 def get_path_random(path):
     i = random.randint(0,len(path)-1)
@@ -76,29 +82,27 @@ def get_path_random(path):
 def get_path_middle(selfie1:str, selfie2:str) -> str: 
     """returns SELFIES """
     chem_path = chemical_path(selfie1, selfie2)
-    # 0 1 2 3 4 5 6 -> 3 = 6/2
-    # 0 1 2 3 4 5  -> 2,3 = floor(5/2), round(5/2) #actually ill just round so I pick one offspring
     return chem_path[round(len(chem_path)/2)]
 
 def chemical_path(selfie1: str, selfie2: str) -> List[str]:
     """returns list of SELFIES"""
-    sf_lst1 = list(sf.split_selfies(selfie1))
-    sf_lst2 = list(sf.split_selfies(selfie2))
-
-    sf_lst1_len = len(sf_lst1)
-    sf_lst2_len = len(sf_lst2)
+    starting_selfie_chars = list(sf.split_selfies(selfie1))
+    target_selfie_chars = list(sf.split_selfies(selfie2))
     
-    if sf_lst1_len>sf_lst2_len:
-        sf_lst2.extend(['[nop]']*(sf_lst1_len-sf_lst2_len))
-    elif sf_lst2_len>sf_lst1_len:
-        sf_lst1.extend(['[nop]']*(sf_lst2_len-sf_lst1_len))
+    if len(starting_selfie_chars)>len(target_selfie_chars):
+        target_selfie_chars.extend(['[nop]']*(len(starting_selfie_chars)-len(target_selfie_chars)))
+    elif len(starting_selfie_chars)<len(target_selfie_chars):
+        starting_selfie_chars.extend(['[nop]']*(len(target_selfie_chars)-len(starting_selfie_chars)))
+
+    indices_diff = [i for i in range(len(starting_selfie_chars)) if starting_selfie_chars[i] != target_selfie_chars[i]]
+    random.shuffle(indices_diff)
 
     chem_path = [selfie1]
-    for sym_i in range(sf_lst1_len):
-        sf_lst1[sym_i] = sf_lst2[sym_i]
-        chem_path.append((''.join(sf_lst1)))
+    for sym_i in indices_diff:
+        starting_selfie_chars[sym_i] = target_selfie_chars[sym_i]
+        chem_path.append((''.join(starting_selfie_chars)))
 
-    return list(set(chem_path))
+    return chem_path
 
 def canonical_chem_path(selfie1: str, selfie2: str) -> List[str]:
     """returns list of SELFIES"""
@@ -114,11 +118,14 @@ def randomized_chem_path(selfie1: str, selfie2: str) -> List[str]:
     rs2 = fn.randomize_selfie(selfie2)
     return chemical_path(rs1,rs2)
 
-def all_chem_paths(selfie1: str, selfie2: str, n_random = 5) -> List[str]:
+def all_chem_paths(selfie1: str, selfie2: str, n_random = 1) -> List[str]:
     bidir = bidirectional_chem_path(selfie1, selfie2)
+    #bidir = []
     canonical = canonical_chem_path(selfie1, selfie2) + canonical_chem_path(selfie2, selfie1)
     rand = []
-    for _ in range(n_random):
-        rand.extend(randomized_chem_path(selfie1, selfie2))
-        rand.extend(randomized_chem_path(selfie2, selfie1))
+    if n_random>0:
+        for _ in range(n_random):
+            rand.extend(randomized_chem_path(selfie1, selfie2))
+            rand.extend(randomized_chem_path(selfie2, selfie1))
+    #print(len(list(set(bidir + canonical + rand)))/len(list(set(bidir + canonical))))
     return list(set(bidir + canonical + rand))
